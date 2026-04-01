@@ -299,4 +299,4 @@ if __name__ == '__main__':
     mlx, vl53, imu = init_sensors()
     threading.Thread(target=sensor_loop, args=(mlx, vl53, imu), daemon=True).start()
     print(f"\n{'='*60}\nIDS running | login: {ADMIN_USERNAME}/{ADMIN_PASSWORD}\n{'='*60}\n")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)    
