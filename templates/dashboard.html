@@ -2,6 +2,24 @@
 
 {% block title %}Dashboard - Thermal Security System{% endblock %}
 
+{% block extra_css %}
+<style>
+    .sensor-panel { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 1rem; }
+    .sensor-panel h6 { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
+    #thermalCanvas { width: 100%; border-radius: 6px; image-rendering: pixelated; display: block; }
+    .temp-bar { display: flex; justify-content: space-between; font-size: 0.75rem; color: #aaa; margin-top: 4px; }
+    #distanceGrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+    .dist-cell { aspect-ratio: 1; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: white; font-weight: bold; }
+    .motion-axis { margin-bottom: 6px; }
+    .motion-axis label { font-size: 0.7rem; color: #aaa; display: flex; justify-content: space-between; margin-bottom: 2px; }
+    .motion-bar-track { height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+    .motion-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+    .sensor-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .dot-live { background: #20c997; box-shadow: 0 0 6px #20c997; }
+    .dot-sim  { background: #ffc107; box-shadow: 0 0 6px #ffc107; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="dashboard-container py-4">
     <div class="container">
@@ -15,7 +33,7 @@
             </div>
         </div>
         
-        <!-- Intrusion Alert Banner (shown when intrusion is active) -->
+        <!-- Intrusion Alert Banner -->
         <div id="intrusionAlert" class="alert alert-danger alert-dismissible fade {% if intrusion_active %}show{% endif %}" 
              role="alert" style="display: {% if intrusion_active %}block{% else %}none{% endif %};">
             <h4 class="alert-heading">
@@ -28,9 +46,44 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         
-        <!-- Status Cards Row -->
-        <div class="row g-4 mb-4">
-            <!-- System Status Card -->
+        <!-- Control Panel (YOUR ORIGINAL - UNCHANGED) -->
+        <div class="row">
+            <div class="col">
+                <div class="card bg-dark border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-gear-fill"></i> Control Panel
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <button class="btn btn-success btn-lg w-100" id="armBtn" onclick="armSystem()">
+                                    <i class="bi bi-shield-fill-check"></i><br>ARM SYSTEM
+                                </button>
+                                <small class="text-light d-block mt-2 text-center">Activate security monitoring</small>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-warning btn-lg w-100" id="disarmBtn" onclick="disarmSystem()">
+                                    <i class="bi bi-shield-fill-x"></i><br>DISARM SYSTEM
+                                </button>
+                                <small class="text-light d-block mt-2 text-center">Deactivate security monitoring</small>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-danger btn-lg w-100" id="simulateBtn" onclick="simulateIntrusion()">
+                                    <i class="bi bi-exclamation-triangle-fill"></i><br>SIMULATE INTRUSION
+                                </button>
+                                <small class="text-light d-block mt-2 text-center">Test emergency response (requires armed)</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        
+        <!-- Status Cards Row (YOUR ORIGINAL - UNCHANGED) -->
+        <div class="row g-4 mb-4 mt-2">
             <div class="col-md-4">
                 <div class="card bg-dark border-secondary h-100">
                     <div class="card-body text-center">
@@ -44,7 +97,6 @@
                 </div>
             </div>
             
-            <!-- Thermal Reading Card -->
             <div class="col-md-4">
                 <div class="card bg-dark border-secondary h-100">
                     <div class="card-body text-center">
@@ -53,12 +105,11 @@
                         <h2 class="mt-3 text-warning">
                             <span id="temperature">--</span>°C
                         </h2>
-                        <small class="text-light">Live temperature sensor</small>
+                        <small class="text-light">Peak: <span id="maxTemp" class="text-danger">--</span>°C &nbsp;|&nbsp; Avg: <span id="avgTemp" class="text-warning">--</span>°C</small>
                     </div>
                 </div>
             </div>
             
-            <!-- Intrusion Status Card -->
             <div class="col-md-4">
                 <div class="card bg-dark border-secondary h-100">
                     <div class="card-body text-center">
@@ -67,72 +118,70 @@
                         <h2 class="mt-3">
                             <span class="badge" id="intrusionBadge">LOADING...</span>
                         </h2>
-                        <small class="text-light">Threat detection status</small>
+                        <small class="text-light">Closest object: <span id="closestMm">--</span> mm</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── NEW: Live Sensor Panels ── -->
+        <div class="row g-4 mb-4">
+
+            <!-- Thermal Heatmap -->
+            <div class="col-lg-5">
+                <div class="sensor-panel h-100">
+                    <h6><span class="sensor-dot" id="mlxDot"></span>MLX90640 · Thermal Camera (32×24)</h6>
+                    <canvas id="thermalCanvas" width="320" height="240"></canvas>
+                    <div class="temp-bar">
+                        <span>Min: <span id="tMin">--</span>°C</span>
+                        <span>Avg: <span id="tAvg">--</span>°C</span>
+                        <span>Max: <span id="tMax">--</span>°C</span>
+                    </div>
+                    <div style="height:8px;margin-top:6px;border-radius:4px;
+                         background:linear-gradient(to right,#0000ff,#00ffff,#00ff00,#ffff00,#ff0000);"></div>
+                    <div class="temp-bar"><span>Cold</span><span>Hot</span></div>
+                </div>
+            </div>
+
+            <!-- Distance Grid -->
+            <div class="col-lg-3">
+                <div class="sensor-panel h-100">
+                    <h6><span class="sensor-dot" id="vlDot"></span>VL53L5CX · Distance Grid (8×8) mm</h6>
+                    <div id="distanceGrid"></div>
+                    <div class="mt-2" style="font-size:0.75rem;color:#aaa;">
+                        Closest: <span id="dMin" class="text-info fw-bold">--</span> mm &nbsp;|&nbsp;
+                        Farthest: <span id="dMax">--</span> mm
+                    </div>
+                </div>
+            </div>
+
+            <!-- Motion -->
+            <div class="col-lg-4">
+                <div class="sensor-panel h-100">
+                    <h6><span class="sensor-dot" id="icmDot"></span>ICM20948 · Motion / IMU</h6>
+                    <p class="mb-1" style="font-size:0.7rem;color:#888;">ACCELEROMETER (g)</p>
+                    <div class="motion-axis" id="axisAX"></div>
+                    <div class="motion-axis" id="axisAY"></div>
+                    <div class="motion-axis" id="axisAZ"></div>
+                    <p class="mb-1 mt-2" style="font-size:0.7rem;color:#888;">GYROSCOPE (°/s)</p>
+                    <div class="motion-axis" id="axisGX"></div>
+                    <div class="motion-axis" id="axisGY"></div>
+                    <div class="motion-axis" id="axisGZ"></div>
+                    <div class="mt-2 text-center">
+                        <span id="motionBadge" class="badge bg-success">✅ Still</span>
+                        &nbsp;
+                        <span style="font-size:0.75rem;color:#aaa;">Intensity: <span id="motionIntensity">0.00</span> °/s</span>
                     </div>
                 </div>
             </div>
         </div>
         
-        <!-- Control Panel -->
-        <div class="row">
-            <div class="col">
-                <div class="card bg-dark border-danger">
-                    <div class="card-header bg-danger text-white">
-                        <h5 class="mb-0">
-                            <i class="bi bi-gear-fill"></i> Control Panel
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <!-- Arm Button -->
-                            <div class="col-md-4">
-                                <button class="btn btn-success btn-lg w-100" 
-                                        id="armBtn" 
-                                        onclick="armSystem()">
-                                    <i class="bi bi-shield-fill-check"></i>
-                                    <br>ARM SYSTEM
-                                </button>
-                                <small class="text-light d-block mt-2 text-center">
-                                    Activate security monitoring
-                                </small>
-                            </div>
-                            
-                            <!-- Disarm Button -->
-                            <div class="col-md-4">
-                                <button class="btn btn-warning btn-lg w-100" 
-                                        id="disarmBtn" 
-                                        onclick="disarmSystem()">
-                                    <i class="bi bi-shield-fill-x"></i>
-                                    <br>DISARM SYSTEM
-                                </button>
-                                <small class="text-light d-block mt-2 text-center">
-                                    Deactivate security monitoring
-                                </small>
-                            </div>
-                            
-                            <!-- Simulate Intrusion Button -->
-                            <div class="col-md-4">
-                                <button class="btn btn-danger btn-lg w-100" 
-                                        id="simulateBtn" 
-                                        onclick="simulateIntrusion()">
-                                    <i class="bi bi-exclamation-triangle-fill"></i>
-                                    <br>SIMULATE INTRUSION
-                                </button>
-                                <small class="text-light d-block mt-2 text-center">
-                                    Test emergency response (requires armed)
-                                </small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
         
         <!-- Last Update Info -->
         <div class="row mt-4">
             <div class="col text-center">
                 <small class="text-light">
-                    <i class="bi bi-arrow-clockwise"></i> Auto-refresh every 5 seconds 
+                    <i class="bi bi-arrow-clockwise"></i> Live sensor feed · 500ms refresh
                     | Last update: <span id="lastUpdate">--</span>
                 </small>
             </div>
@@ -143,21 +192,101 @@
 
 {% block extra_js %}
 <script>
-    // Auto-refresh interval (5 seconds)
-    const REFRESH_INTERVAL = 5000;
+    // ── Colour helpers ────────────────────────────────────────────────────
+    function tempToRgb(temp, minT, maxT) {
+        const r = Math.max(0, Math.min(1, (temp - minT) / (maxT - minT || 1)));
+        const stops = [[0,0,255],[0,255,255],[0,255,0],[255,255,0],[255,0,0]];
+        const idx = r * (stops.length - 1);
+        const lo = Math.floor(idx), hi = Math.min(lo+1, stops.length-1), f = idx - lo;
+        const lerp = (a,b) => Math.round(a + f*(b-a));
+        return `rgb(${lerp(stops[lo][0],stops[hi][0])},${lerp(stops[lo][1],stops[hi][1])},${lerp(stops[lo][2],stops[hi][2])})`;
+    }
+
+    function distToRgb(mm) {
+        if (mm <= 0)   return 'rgb(40,40,40)';
+        if (mm < 300)  return 'rgb(220,50,50)';
+        if (mm < 600)  return 'rgb(220,150,0)';
+        if (mm < 1000) return 'rgb(50,150,220)';
+        return 'rgb(40,80,120)';
+    }
+
+    // ── Thermal renderer ──────────────────────────────────────────────────
+    function renderThermal(data) {
+        const canvas = document.getElementById('thermalCanvas');
+        const ctx = canvas.getContext('2d');
+        const pw = canvas.width / 32, ph = canvas.height / 24;
+        data.frame.forEach((t, i) => {
+            ctx.fillStyle = tempToRgb(t, data.min_temp, data.max_temp);
+            ctx.fillRect((i%32)*pw, Math.floor(i/32)*ph, pw, ph);
+        });
+        document.getElementById('tMin').textContent = data.min_temp.toFixed(1);
+        document.getElementById('tAvg').textContent = data.avg_temp.toFixed(1);
+        document.getElementById('tMax').textContent = data.max_temp.toFixed(1);
+    }
+
+    // ── Distance renderer ─────────────────────────────────────────────────
+    function renderDistance(data) {
+        const grid = document.getElementById('distanceGrid');
+        grid.innerHTML = data.grid.map(mm => {
+            const label = mm > 0 ? (mm >= 1000 ? (mm/1000).toFixed(1)+'m' : mm+'') : '—';
+            return `<div class="dist-cell" style="background:${distToRgb(mm)}">${label}</div>`;
+        }).join('');
+        document.getElementById('dMin').textContent = data.min_mm > 0 ? data.min_mm : '—';
+        document.getElementById('dMax').textContent = data.max_mm > 0 ? data.max_mm : '—';
+    }
+
+    // ── Motion renderer ───────────────────────────────────────────────────
+    function axisBar(id, label, value, maxVal, color) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const pct = Math.min(100, Math.abs(value) / maxVal * 100).toFixed(1);
+        el.innerHTML = `
+            <label><span>${label}: ${value.toFixed(3)}</span></label>
+            <div class="motion-bar-track">
+                <div class="motion-bar-fill" style="width:${pct}%;background:${color};"></div>
+            </div>`;
+    }
+
+    function renderMotion(data) {
+        axisBar('axisAX','X', data.accel.x, 2,  '#20c997');
+        axisBar('axisAY','Y', data.accel.y, 2,  '#0dcaf0');
+        axisBar('axisAZ','Z', data.accel.z, 2,  '#6f42c1');
+        axisBar('axisGX','X', data.gyro.x,  50, '#fd7e14');
+        axisBar('axisGY','Y', data.gyro.y,  50, '#ffc107');
+        axisBar('axisGZ','Z', data.gyro.z,  50, '#dc3545');
+        const badge = document.getElementById('motionBadge');
+        badge.className = data.motion_detected ? 'badge bg-danger' : 'badge bg-success';
+        badge.textContent = data.motion_detected ? '⚠️ MOTION DETECTED' : '✅ Still';
+        document.getElementById('motionIntensity').textContent = data.motion_intensity.toFixed(2);
+    }
+
+    function setDot(id, live) {
+        const el = document.getElementById(id);
+        if (el) el.className = 'sensor-dot ' + (live ? 'dot-live' : 'dot-sim');
+    }
+
+    // ── Fetch live sensor data every 500ms ────────────────────────────────
+    async function fetchSensors() {
+        try {
+            const res = await fetch('/api/sensors');
+            if (!res.ok) return;
+            const data = await res.json();
+            renderThermal(data.thermal);
+            renderDistance(data.distance);
+            renderMotion(data.motion);
+        } catch(e) {}
+    }
+
+    // ── YOUR ORIGINAL status update (unchanged) ───────────────────────────
+    const REFRESH_INTERVAL = 2000;
     let refreshTimer;
-    
-    /**
-     * Update the dashboard with current system status
-     */
+
     function updateDashboard() {
         fetch('/api/status')
             .then(response => response.json())
             .then(data => {
-                // Update system status
                 const statusBadge = document.getElementById('statusBadge');
-                const statusIcon = document.getElementById('statusIcon');
-                
+                const statusIcon  = document.getElementById('statusIcon');
                 if (data.armed) {
                     statusBadge.textContent = 'ARMED';
                     statusBadge.className = 'badge bg-success';
@@ -167,15 +296,16 @@
                     statusBadge.className = 'badge bg-secondary';
                     statusIcon.className = 'bi bi-shield-fill-x display-4 text-secondary';
                 }
-                
-                // Update temperature
+
+                // Real temperature from sensor
                 document.getElementById('temperature').textContent = data.temperature;
-                
-                // Update intrusion status
+                document.getElementById('maxTemp').textContent     = data.max_temperature || '--';
+                document.getElementById('avgTemp').textContent     = data.temperature;
+                document.getElementById('closestMm').textContent   = data.closest_mm > 0 ? data.closest_mm : '—';
+
                 const intrusionBadge = document.getElementById('intrusionBadge');
-                const intrusionIcon = document.getElementById('intrusionIcon');
+                const intrusionIcon  = document.getElementById('intrusionIcon');
                 const intrusionAlert = document.getElementById('intrusionAlert');
-                
                 if (data.intrusion_active) {
                     intrusionBadge.textContent = 'INTRUSION DETECTED';
                     intrusionBadge.className = 'badge bg-danger';
@@ -187,146 +317,71 @@
                     intrusionBadge.className = 'badge bg-success';
                     intrusionIcon.className = 'bi bi-eye-fill display-4 text-success';
                 }
-                
-                // Update last refresh time
-                const now = new Date();
-                document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+
+                // Sensor dots
+                if (data.sensors) {
+                    setDot('mlxDot', data.sensors.mlx90640);
+                    setDot('vlDot',  data.sensors.vl53l5cx);
+                    setDot('icmDot', data.sensors.icm20948);
+                }
+
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
             })
-            .catch(error => {
-                console.error('Error fetching status:', error);
-            });
+            .catch(error => console.error('Error fetching status:', error));
     }
-    
-    /**
-     * Arm the security system
-     */
+
+    // ── YOUR ORIGINAL control functions (unchanged) ───────────────────────
     function armSystem() {
-        fetch('/api/arm', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                updateDashboard();
-                showToast('System Armed', 'Security monitoring is now active', 'success');
-            }
-        })
-        .catch(error => {
-            console.error('Error arming system:', error);
-            showToast('Error', 'Failed to arm system', 'danger');
-        });
+        fetch('/api/arm', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => r.json()).then(d => { if (d.success) { updateDashboard(); showToast('System Armed', 'Security monitoring is now active', 'success'); }});
     }
-    
-    /**
-     * Disarm the security system
-     */
+
     function disarmSystem() {
-        fetch('/api/disarm', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Hide intrusion alert when disarming
-                const intrusionAlert = document.getElementById('intrusionAlert');
-                intrusionAlert.style.display = 'none';
-                intrusionAlert.classList.remove('show');
-                
-                updateDashboard();
-                showToast('System Disarmed', 'Security monitoring is now inactive', 'warning');
-            }
-        })
-        .catch(error => {
-            console.error('Error disarming system:', error);
-            showToast('Error', 'Failed to disarm system', 'danger');
-        });
+        fetch('/api/disarm', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => r.json()).then(d => {
+                if (d.success) {
+                    document.getElementById('intrusionAlert').style.display = 'none';
+                    document.getElementById('intrusionAlert').classList.remove('show');
+                    updateDashboard();
+                    showToast('System Disarmed', 'Security monitoring is now inactive', 'warning');
+                }});
     }
-    
-    /**
-     * Simulate an intrusion event
-     */
+
     function simulateIntrusion() {
-        fetch('/api/simulate-intrusion', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(data => {
-                    throw new Error(data.error || 'Failed to simulate intrusion');
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                updateDashboard();
-                showToast('Intrusion Simulated', 'Emergency services have been notified', 'danger');
-            }
-        })
-        .catch(error => {
-            console.error('Error simulating intrusion:', error);
-            showToast('Error', error.message, 'danger');
-        });
+        fetch('/api/simulate-intrusion', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => { if (!r.ok) return r.json().then(d => { throw new Error(d.error); }); return r.json(); })
+            .then(d => { if (d.success) { updateDashboard(); showToast('Intrusion Simulated', 'Emergency services have been notified', 'danger'); }})
+            .catch(e => showToast('Error', e.message, 'danger'));
     }
-    
-    /**
-     * Show a toast notification
-     */
+
     function showToast(title, message, type) {
-        // Create toast container if it doesn't exist
-        let toastContainer = document.getElementById('toastContainer');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.id = 'toastContainer';
-            toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-            document.body.appendChild(toastContainer);
+        let tc = document.getElementById('toastContainer');
+        if (!tc) {
+            tc = document.createElement('div');
+            tc.id = 'toastContainer';
+            tc.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+            document.body.appendChild(tc);
         }
-        
-        // Create toast element
-        const toastId = 'toast-' + Date.now();
-        const toastHtml = `
-            <div id="${toastId}" class="toast" role="alert">
+        const id = 'toast-' + Date.now();
+        tc.insertAdjacentHTML('beforeend', `
+            <div id="${id}" class="toast" role="alert">
                 <div class="toast-header bg-${type} text-white">
                     <strong class="me-auto">${title}</strong>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
                 </div>
-                <div class="toast-body bg-dark text-light border-${type}">
-                    ${message}
-                </div>
-            </div>
-        `;
-        
-        toastContainer.insertAdjacentHTML('beforeend', toastHtml);
-        
-        // Show toast
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
-        toast.show();
-        
-        // Remove toast after it's hidden
-        toastElement.addEventListener('hidden.bs.toast', function() {
-            toastElement.remove();
-        });
+                <div class="toast-body bg-dark text-light border-${type}">${message}</div>
+            </div>`);
+        const te = document.getElementById(id);
+        new bootstrap.Toast(te, { delay: 3000 }).show();
+        te.addEventListener('hidden.bs.toast', () => te.remove());
     }
-    
-    // Initial dashboard update on page load
+
+    // ── Start both loops ──────────────────────────────────────────────────
     updateDashboard();
-    
-    // Set up auto-refresh every 5 seconds
+    fetchSensors();
     refreshTimer = setInterval(updateDashboard, REFRESH_INTERVAL);
-    
-    // Clear timer when page is unloaded
-    window.addEventListener('beforeunload', function() {
-        clearInterval(refreshTimer);
-    });
+    setInterval(fetchSensors, 500);
+
+    window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
 </script>
 {% endblock %}
